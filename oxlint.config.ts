@@ -16,6 +16,10 @@ export default defineConfig({
     "typescript/prefer-readonly-parameter-types": "off",
     "typescript/strict-boolean-expressions": "off",
     "typescript/no-unsafe-type-assertion": "off",
+    "typescript/no-unsafe-assignment": "off",
+    "typescript/no-unsafe-member-access": "off",
+    "typescript/no-unsafe-call": "off",
+    "typescript/no-unsafe-return": "off",
 
     // this rule is marked "Pedantic" in official Oxc doc
     "max-lines-per-function": "off",

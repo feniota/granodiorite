@@ -23,7 +23,7 @@ export default {
         await process_sync_queue(env);
         break;
       default:
-        console.warn(`Unknown cron pattern: ${controller.cron}`);
+        console.warn({ event: "UNKNOWN_CRON", cron: controller.cron });
     }
   },
 } satisfies ExportedHandler<Env>;

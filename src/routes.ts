@@ -12,7 +12,7 @@ import {
 const VERSION_MANIFEST_ORIGIN = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
 
 /** 版本 JSON 基础 URL */
-const VERSION_JSON_ORIGIN = "https://launchermeta.mojang.com/v1/packages";
+const VERSION_JSON_ORIGIN = "https://piston-meta.mojang.com/v1/packages";
 
 /** 资源对象基础 URL */
 const ASSETS_ORIGIN = "https://resources.download.minecraft.net";
@@ -114,7 +114,20 @@ function match_asset_index(pathname: string): Resource | null {
     type: "asset_index" as const,
     id: asset_id,
     r2_key: asset_index_key(asset_id),
-    origin_url: `https://launchermeta.mojang.com/assets/${asset_id}.json`,
+    origin_url: `https://piston-meta.mojang.com/v1/packages/${asset_id}/${asset_id}.json`,
+  };
+}
+
+/** Piston data 对象: /v1/objects/<sha1>/<file> (client JAR等) */
+function match_piston_object(pathname: string): Resource | null {
+  const m = pathname.match(/^\/v1\/objects\/([0-9a-f]{40})\/(.+)$/u);
+  if (!m) return null;
+  const sha1 = m[1];
+  return {
+    type: "asset" as const,
+    hash: sha1,
+    r2_key: `piston-objects/${sha1}/${m[2]}`,
+    origin_url: `https://piston-data.mojang.com/v1/objects/${sha1}/${m[2]}`,
   };
 }
 
@@ -126,6 +139,7 @@ export function route(pathname: string): Resource | null {
     match_minecraft_library(pathname) ??
     match_maven_proxy(pathname) ??
     match_version_json(pathname) ??
+    match_piston_object(pathname) ??
     match_jar(pathname) ??
     match_asset_index(pathname)
   );

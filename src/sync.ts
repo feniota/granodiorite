@@ -36,13 +36,13 @@ export async function sync_version_manifest(env: Env): Promise<void> {
 
   // 按类型入队
   for (const v of new_versions) {
+    const entry = JSON.stringify({ id: v.id, url: v.url });
     if (HIGH_PRIORITY_VERSIONS.includes(v.id) || v.id === manifest.latest.release) {
-      await kv.push_to_queue(env.GRANODIORITE_KV, "high", v.id);
+      await kv.push_to_queue(env.GRANODIORITE_KV, "high", entry);
     } else if (v.type === "release") {
-      await kv.push_to_queue(env.GRANODIORITE_KV, "medium", v.id);
+      await kv.push_to_queue(env.GRANODIORITE_KV, "medium", entry);
     } else {
-      // 快照/预发布/远古版 — 仅懒同步
-      await kv.push_to_queue(env.GRANODIORITE_KV, "lazy", v.id);
+      await kv.push_to_queue(env.GRANODIORITE_KV, "lazy", entry);
     }
   }
 
@@ -50,14 +50,14 @@ export async function sync_version_manifest(env: Env): Promise<void> {
   const all_ids = manifest.versions.map(v => v.id);
   await kv.set_cached_versions(env.GRANODIORITE_KV, all_ids);
 
-  // 缓存清单（供其他功能使用）
+  // 缓存清单 body 和 etag（供其他功能使用，如 resolve_version_sha1）
+  await kv.set_cached_manifest_body(env.GRANODIORITE_KV, JSON.stringify(manifest));
   await kv.set_manifest_etag(env.GRANODIORITE_KV, new_etag!);
 }
 
 // ── 版本文件同步 (cron: */15 * * * *) ─────────────────────
 
 export async function process_sync_queue(env: Env): Promise<void> {
-  // 按优先级处理: high → medium
   const priorities = ["high", "medium"] as const;
 
   for (const priority of priorities) {
@@ -65,29 +65,76 @@ export async function process_sync_queue(env: Env): Promise<void> {
     const batch_size = priority === "high" ? 3 : 1;
 
     for (let i = 0; i < Math.min(length, batch_size); i++) {
-      const version_id = await kv.pop_from_queue(env.GRANODIORITE_KV, priority);
-      if (!version_id) break;
+      const entry = await kv.pop_from_queue(env.GRANODIORITE_KV, priority);
+      if (!entry) break;
+
+      let version_id: string;
+      let version_url: string;
+      try {
+        const parsed = JSON.parse(entry);
+        // JSON.parse("1.20.3") 返回字符串，不抛异常。需要显式判断是否真的是对象
+        if (typeof parsed !== "object" || typeof parsed.id !== "string") {
+          throw new Error("Not a valid queue entry");
+        }
+        version_id = parsed.id;
+        version_url = parsed.url;
+      } catch {
+        // 旧格式：队列里是纯 version_id
+        version_id = entry;
+        const sha1 = await resolve_version_sha1(version_id, env);
+        version_url = `https://piston-meta.mojang.com/v1/packages/${sha1}/${version_id}.json`;
+      }
 
       try {
-        await sync_single_version(version_id, env);
+        await sync_single_version(version_id, version_url, env);
         await kv.set_sync_status(env.GRANODIORITE_KV, version_id, "complete");
       } catch (e) {
-        console.error(`Failed to sync ${version_id}:`, e);
+        console.error({
+          event: "SYNC_FAILED",
+          version_id,
+          error: String(e),
+          stack: e instanceof Error ? e.stack : undefined,
+        });
         await kv.set_sync_status(env.GRANODIORITE_KV, version_id, "failed");
-        // 重新入队以便下次重试
-        await kv.push_to_queue(env.GRANODIORITE_KV, priority, version_id);
+        await kv.push_to_queue(env.GRANODIORITE_KV, priority, entry);
       }
     }
   }
 }
 
+async function resolve_version_sha1(version_id: string, env: Env): Promise<string> {
+  // 从 KV 缓存的已知版本清单中查找版本 URL（manifest 的版本条目里没有 sha1 字段，sha1 在 url 路径中）
+  const cached = await kv.get_cached_manifest_body(env.GRANODIORITE_KV);
+  if (cached) {
+    const manifest = JSON.parse(cached);
+    const v = manifest.versions?.find((x: { id: string }) => x.id === version_id);
+    if (v?.url) return extract_sha1_from_url(v.url);
+  }
+  // 兜底：从 manifest API 最新数据获取
+  const [fresh] = await fetch_version_manifest();
+  if (fresh) {
+    const v = fresh.versions.find(x => x.id === version_id);
+    if (v?.url) return extract_sha1_from_url(v.url);
+  }
+  throw new Error(`Cannot resolve SHA1 for ${version_id}`);
+}
+
+/** 从 piston-meta URL 中提取 SHA1（URL 格式：.../packages/{sha1}/{version_id}.json） */
+function extract_sha1_from_url(url: string): string {
+  const parts = url.split("/");
+  return parts[parts.length - 2];
+}
+
 // ── 单版本同步 ───────────────────────────────────────────
 
-async function sync_single_version(version_id: string, env: Env): Promise<void> {
+async function sync_single_version(
+  version_id: string,
+  version_url: string,
+  env: Env,
+): Promise<void> {
   await kv.set_sync_status(env.GRANODIORITE_KV, version_id, "in_progress");
 
   // 1. 获取版本 JSON
-  const version_url = `https://launchermeta.mojang.com/v1/packages/${version_id}/${version_id}.json`;
   const version_json = await fetch_version_json(version_url);
 
   // 2. 缓存版本 JSON 到 R2
@@ -108,25 +155,25 @@ async function sync_single_version(version_id: string, env: Env): Promise<void> 
   if (asset_index) {
     const ai_key = `minecraft/assets/indexes/${asset_index.id}.json`;
     await proxy_and_cache(env, ai_key, asset_index.url);
-  }
 
-  // 5. 下载 asset 对象
-  const asset_list = await fetch_asset_index(asset_index.url, asset_index.sha1);
-  let asset_count = 0;
-  for (const [_name, obj] of Object.entries(asset_list.objects)) {
-    const hash = obj.hash;
-    const asset_key = `minecraft/assets/${hash.slice(0, 2)}/${hash}`;
+    // 5. 下载 asset 对象
+    const asset_list = await fetch_asset_index(asset_index.url, asset_index.sha1);
+    let asset_count = 0;
+    for (const [_name, obj] of Object.entries(asset_list.objects)) {
+      const hash = obj.hash;
+      const asset_key = `minecraft/assets/${hash.slice(0, 2)}/${hash}`;
 
-    // 跳过已缓存的
-    const existing = await r2.head(env.MIRROR_BUCKET, asset_key);
-    if (existing) continue;
+      // 跳过已缓存的
+      const existing = await r2.head(env.MIRROR_BUCKET, asset_key);
+      if (existing) continue;
 
-    const asset_url = `https://resources.download.minecraft.net/${hash.slice(0, 2)}/${hash}`;
-    await proxy_and_cache(env, asset_key, asset_url);
-    asset_count++;
+      const asset_url = `https://resources.download.minecraft.net/${hash.slice(0, 2)}/${hash}`;
+      await proxy_and_cache(env, asset_key, asset_url);
+      asset_count++;
 
-    // 防止单次 cron 同步超时，限制每次最多下载 500 个资源
-    if (asset_count >= 500) break;
+      // 防止单次 cron 同步超时，限制每次最多下载 500 个资源
+      if (asset_count >= 500) break;
+    }
   }
 
   await kv.set_sync_status(env.GRANODIORITE_KV, version_id, "complete");
