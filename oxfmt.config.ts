@@ -4,6 +4,7 @@ export default defineConfig({
   sortImports: true,
   arrowParens: "avoid",
   jsdoc: true,
+  ignorePatterns: ["worker-configuration.d.ts"],
   overrides: [
     {
       files: ["**/*.jsonc"],

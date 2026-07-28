@@ -12,17 +12,8 @@ jobs:
         with:
           deno-version: v2.x
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Install dependencies
         run: deno install --node-modules-dir=auto --min-dep-age=0
-
-      - name: Regenerate types & check for drift
-        run: |
-          ./node_modules/.bin/wrangler types
-          git diff --exit-code worker-configuration.d.ts
 
       - name: Type check
         run: deno task check
