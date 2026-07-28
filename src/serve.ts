@@ -6,8 +6,15 @@ import type { Resource, VersionManifest } from "./types.ts";
 /** 下载锁的 TTL（秒），防止并发拉取同一文件 */
 const DOWNLOAD_LOCK_TTL = 120;
 
+/** 小文件直接服务阈值（字节）。≤ 此大小的文件不 302 跳转，直接从 Worker 内存读取 R2 返回。
+ * 1 MiB：覆盖绝大部分 asset 对象和库文件，避免小文件的 TLS 握手开销。 */
+const SMALL_FILE_THRESHOLD = 1 * 1024 * 1024;
+
 /** 尝试获取下载锁，防止并发拉取同一文件 */
-async function try_acquire_lock(kv: KVNamespace, r2_key: string): Promise<boolean> {
+async function try_acquire_lock(
+  kv: KVNamespace,
+  r2_key: string,
+): Promise<boolean> {
   const lock_key = `dl:lock:${r2_key}`;
   const existing = await kv.get(lock_key);
   if (existing === "in_progress") return false;
@@ -33,13 +40,30 @@ export async function handle_request(
     return new Response("Not Found", { status: 404 });
   }
 
-  // 检查 R2 缓存 — 命中则 302 到公开桶
+  // 检查 R2 缓存
   const cached = await r2.head(env.MIRROR_BUCKET, resource.r2_key);
   if (cached) {
     const if_none_match = request.headers.get("If-None-Match");
     if (if_none_match && cached.etag === if_none_match) {
       return new Response(null, { status: 304 });
     }
+
+    // 小文件：直接从 Worker 内存返回（避免 302 重定向的 TLS 握手开销）
+    if (cached.size !== undefined && cached.size <= SMALL_FILE_THRESHOLD) {
+      const obj = await env.MIRROR_BUCKET.get(resource.r2_key);
+      if (!obj) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const headers: Record<string, string> = {
+        ETag: cached.etag,
+        "Cache-Control": "public, max-age=604800",
+      };
+      const ct = obj.httpMetadata?.contentType;
+      if (ct) headers["Content-Type"] = ct;
+      return new Response(obj.body, { headers });
+    }
+
+    // 大文件：302 重定向到 R2 公开桶，让客户端直接下载
     return new Response(null, {
       status: 302,
       headers: {
@@ -50,7 +74,11 @@ export async function handle_request(
     });
   }
 
-  console.log({ event: "CACHE_MISS", type: resource.type, key: resource.r2_key });
+  console.log({
+    event: "CACHE_MISS",
+    type: resource.type,
+    key: resource.r2_key,
+  });
 
   // client_jar 需要先从 version.json 获取真实的下载 URL
   if (resource.type === "client_jar") {
@@ -83,14 +111,16 @@ async function proxy_from_origin(
     ctx.waitUntil(
       env.MIRROR_BUCKET.put(resource.r2_key, r2_stream, {
         httpMetadata: {
-          contentType: origin_res.headers.get("Content-Type") ?? "application/octet-stream",
+          contentType: origin_res.headers.get("Content-Type") ??
+            "application/octet-stream",
         },
       }),
     );
     return new Response(client_stream, {
       status: 200,
       headers: {
-        "Content-Type": origin_res.headers.get("Content-Type") ?? "application/octet-stream",
+        "Content-Type": origin_res.headers.get("Content-Type") ??
+          "application/octet-stream",
         "Cache-Control": "public, max-age=604800",
         "X-Cache": "MISS",
       },
@@ -102,7 +132,8 @@ async function proxy_from_origin(
   return new Response(origin_res.body, {
     status: 200,
     headers: {
-      "Content-Type": origin_res.headers.get("Content-Type") ?? "application/octet-stream",
+      "Content-Type": origin_res.headers.get("Content-Type") ??
+        "application/octet-stream",
       "Cache-Control": "public, max-age=604800",
     },
   });
@@ -120,7 +151,8 @@ async function proxy_version_json(
 
   // 完整读取 JSON 以便解析
   const body = await origin_res.arrayBuffer();
-  const content_type = origin_res.headers.get("Content-Type") ?? "application/json";
+  const content_type = origin_res.headers.get("Content-Type") ??
+    "application/json";
 
   // 缓存到 R2
   ctx.waitUntil(
@@ -131,7 +163,9 @@ async function proxy_version_json(
 
   // 后台预缓存：解析 version JSON 后下载 client JAR + asset index
   try {
-    const manifest: VersionManifest = JSON.parse(new TextDecoder().decode(body));
+    const manifest: VersionManifest = JSON.parse(
+      new TextDecoder().decode(body),
+    );
     console.log({ event: "PRECACHE_START", version: manifest.id });
     ctx.waitUntil(precache_version(manifest, env));
   } catch {
@@ -149,25 +183,43 @@ async function proxy_version_json(
 }
 
 /** 后台预缓存版本文件 */
-async function precache_version(manifest: VersionManifest, env: Env): Promise<void> {
+async function precache_version(
+  manifest: VersionManifest,
+  env: Env,
+): Promise<void> {
   const version_id = manifest.id;
 
   // 预缓存 client JAR
   const client = manifest.downloads?.client;
-  if (client && !(await r2.head(env.MIRROR_BUCKET, `minecraft/clients/${version_id}.jar`))) {
+  if (
+    client &&
+    !(await r2.head(env.MIRROR_BUCKET, `minecraft/clients/${version_id}.jar`))
+  ) {
     console.log({ event: "PRECACHE_CLIENT", version: version_id });
     try {
       const res = await fetch_file(client.url);
       if (!res.ok || !res.body) {
-        console.log({ event: "PRECACHE_CLIENT_FAIL", version: version_id, status: res.status });
+        console.log({
+          event: "PRECACHE_CLIENT_FAIL",
+          version: version_id,
+          status: res.status,
+        });
         return;
       }
-      await env.MIRROR_BUCKET.put(`minecraft/clients/${version_id}.jar`, res.body, {
-        httpMetadata: { contentType: "application/java-archive" },
-      });
+      await env.MIRROR_BUCKET.put(
+        `minecraft/clients/${version_id}.jar`,
+        res.body,
+        {
+          httpMetadata: { contentType: "application/java-archive" },
+        },
+      );
       console.log({ event: "PRECACHE_CLIENT_DONE", version: version_id });
     } catch (e) {
-      console.log({ event: "PRECACHE_CLIENT_ERROR", version: version_id, error: String(e) });
+      console.log({
+        event: "PRECACHE_CLIENT_ERROR",
+        version: version_id,
+        error: String(e),
+      });
     }
   }
 }
