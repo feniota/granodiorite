@@ -74,7 +74,7 @@ export async function process_sync_queue(env: Env): Promise<void> {
         const parsed = JSON.parse(entry);
         // JSON.parse("1.20.3") 返回字符串，不抛异常。需要显式判断是否真的是对象
         if (typeof parsed !== "object" || typeof parsed.id !== "string") {
-          throw new Error("Not a valid queue entry");
+          throw new TypeError("Not a valid queue entry");
         }
         version_id = parsed.id;
         version_url = parsed.url;
@@ -108,7 +108,9 @@ async function resolve_version_sha1(version_id: string, env: Env): Promise<strin
   if (cached) {
     const manifest = JSON.parse(cached);
     const v = manifest.versions?.find((x: { id: string }) => x.id === version_id);
-    if (v?.url) return extract_sha1_from_url(v.url);
+    if (typeof v?.url === "string") {
+      return extract_sha1_from_url(v.url as string);
+    }
   }
   // 兜底：从 manifest API 最新数据获取
   const [fresh] = await fetch_version_manifest();
@@ -122,7 +124,7 @@ async function resolve_version_sha1(version_id: string, env: Env): Promise<strin
 /** 从 piston-meta URL 中提取 SHA1（URL 格式：.../packages/{sha1}/{version_id}.json） */
 function extract_sha1_from_url(url: string): string {
   const parts = url.split("/");
-  return parts[parts.length - 2];
+  return parts.at(parts.length - 2)!;
 }
 
 // ── 单版本同步 ───────────────────────────────────────────
