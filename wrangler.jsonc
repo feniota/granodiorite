@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "granodiorite",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "granodiorite.ferris.love", "custom_domain": true }],
+  "triggers": {
+    "crons": ["*/30 * * * *", "*/15 * * * *"]
+  },
+  "r2_buckets": [
+    {
+      "binding": "MIRROR_BUCKET",
+      "bucket_name": "granodiorite-mirror"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "GRANODIORITE_KV",
+      "id": "ed1f2607ce0b4cf68fd512c6aa76e7f7"
+    }
+  ],
+  "vars": {
+    "PUBLIC_BUCKET_DOMAIN": "r2.granodiorite.ferris.love",
+    "MIRROR_NAME": "Granodiorite"
+  }
+}

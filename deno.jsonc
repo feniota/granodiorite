@@ -1,0 +1,31 @@
+{
+  "$schema": "https://github.com/denoland/deno/raw/refs/heads/main/cli/schemas/config-file.v1.json",
+
+  // Deno configuration for Granodiorite.
+  // Deno is used for auxiliary scripts and NPM package management only.
+  // The Worker itself runs on Cloudflare Workers (workerd) via Wrangler.
+
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "check": "deno check src/index.ts",
+    "lint": "oxlint src/",
+    "fmt": "oxfmt src/",
+    "fmt-check": "oxfmt --check src/",
+    "r2:create": "wrangler r2 bucket create",
+    "kv:create": "wrangler kv namespace create",
+    "seed": "deno -A scripts/seed.ts",
+    "verify": "deno -A scripts/verify.ts"
+  },
+  "compilerOptions": {
+    "types": ["./worker-configuration.d.ts"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts"]
+}
