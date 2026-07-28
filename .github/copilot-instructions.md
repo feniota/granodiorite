@@ -46,7 +46,7 @@ Request → routes.ts (URL → Resource) → r2.head() → hit? → 302 to publi
 
 ### Storage
 
-- **R2 bucket `granodiorite-mirror`** — All Minecraft files under `minecraft/` prefix. Public domain `r2.granodiorite.ferris.love` maps directly to this bucket.
+- **R2 bucket `granodiorite-apac`** — All Minecraft files under `minecraft/` prefix. Public domain `r2.granodiorite.ferris.love` maps directly to this bucket.
 - **KV namespace `GRANODIORITE_KV`** — Three priority queues (`sync:queue:high/medium/lazy`), per-version sync statuses (`sync:status:<id>`), known version list, version manifest ETag cache.
 
 ### URL routing (`src/routes.ts`)

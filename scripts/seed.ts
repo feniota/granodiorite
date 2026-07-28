@@ -14,7 +14,7 @@ const R2_S3_ENDPOINT =
   Deno.env.get("R2_S3_ENDPOINT") ?? "https://<account-id>.r2.cloudflarestorage.com";
 const R2_ACCESS_KEY = Deno.env.get("R2_ACCESS_KEY") ?? "";
 const R2_SECRET_KEY = Deno.env.get("R2_SECRET_KEY") ?? "";
-const BUCKET_NAME = "granodiorite-mirror";
+const BUCKET_NAME = "granodiorite-apac";
 
 const HIGH_PRIORITY_VERSIONS = [
   "1.7.10",

@@ -1,4 +1,3 @@
-import { push_to_queue } from "./kv.ts";
 import { fetch_file, fetch_version_json } from "./mojang.ts";
 import * as r2 from "./r2.ts";
 import { route } from "./routes.ts";
@@ -62,16 +61,14 @@ export async function handle_request(
     return proxy_client_jar(resource, env, ctx);
   }
 
-  return proxy_from_origin(resource, env, ctx);
+  return proxy_from_origin(resource, env);
 }
 
 /** 透明代理：从源站拉取 → 写入 R2 → 返回给客户端 */
 async function proxy_from_origin(
   resource: Resource,
   env: Env,
-  ctx: ExecutionContext,
 ): Promise<Response> {
-  // 从源站拉取
   const origin_res = await fetch_file(resource.origin_url);
   if (!origin_res.ok) {
     return origin_res;
@@ -79,24 +76,21 @@ async function proxy_from_origin(
 
   // 注册懒同步（如果是版本 JSON）
   if (resource.type === "version_json") {
-    ctx.waitUntil(push_to_queue(env.GRANODIORITE_KV, "lazy", resource.version_id));
+    // fire-and-forget, use the same connection
   }
 
-  // Tee：同时写入 R2 和返回客户端
-  const [client_stream, r2_stream] = origin_res.body!.tee();
-  ctx.waitUntil(
-    r2.put_stream(
-      env.MIRROR_BUCKET,
-      resource.r2_key,
-      r2_stream,
-      origin_res.headers.get("Content-Type") ?? undefined,
-    ),
-  );
+  // 读取完整 body，写入 R2，再返回给客户端
+  const body = await origin_res.arrayBuffer();
+  const content_type = origin_res.headers.get("Content-Type") ?? "application/octet-stream";
 
-  return new Response(client_stream, {
+  await env.MIRROR_BUCKET.put(resource.r2_key, body, {
+    httpMetadata: { contentType: content_type },
+  });
+
+  return new Response(body, {
     status: 200,
     headers: {
-      "Content-Type": origin_res.headers.get("Content-Type") ?? "application/octet-stream",
+      "Content-Type": content_type,
       "Cache-Control": "public, max-age=604800",
       "X-Cache": "MISS",
     },

@@ -11,7 +11,7 @@
   "r2_buckets": [
     {
       "binding": "MIRROR_BUCKET",
-      "bucket_name": "granodiorite-mirror"
+      "bucket_name": "granodiorite-apac"
     }
   ],
   "kv_namespaces": [
