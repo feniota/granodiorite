@@ -1,5 +1,7 @@
 # Granodiorite
 
+[服务条款](https://phenocryst.ferris.love/zh/granodiorite/terms.html)
+
 花岗闪长岩（Granodiorite）是一个 Minecraft 游戏资源镜像，同时覆盖主流模组加载器[^1]的安装器文件。本项目是 [Phenocryst](https://phenocryst.ferris.love) 系统的一部分，主要为 [Phanerite 启动器](https://phenocryst.ferris.love/phanerite) 提供下载加速服务。
 
 [^1]: 主流模组加载器：[Fabric](https://fabricmc.net)、[NeoForge](https://neoforged.net) 和 [Forge](https://minecraftforge.net)。

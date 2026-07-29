@@ -1,6 +1,6 @@
 # Granodiorite
 
-[中文](README.zh.md)
+[中文](README.zh.md) [Terms of Service](https://phenocryst.ferris.love/granodiorite/terms.html)
 
 Granodiorite is a mirror serving Minecraft game assets and installers of the popular modloaders[^1]. This is a part of the [Phenocryst](https://phenocryst.ferris.love) project, mainly for the [Phanerite Minecraft Launcher](https://phenocryst.ferris.love/phanerite).
 
