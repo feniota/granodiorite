@@ -15,6 +15,12 @@ jobs:
       - name: Install dependencies
         run: deno install --node-modules-dir=auto --min-dep-age=0
 
+      - name: Install frontend dependencies
+        run: cd frontend && deno install --node-modules-dir=auto --min-dep-age=0
+
+      - name: Build frontend
+        run: cd frontend && deno run -A npm:vite build
+
       - name: Type check
         run: deno task check
 

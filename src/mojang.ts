@@ -80,3 +80,24 @@ export async function verify_sha1(body: ArrayBuffer, expected: string): Promise<
   const hex = [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
   return hex === expected;
 }
+
+// ── Asset Index ───────────────────────────────────────────
+
+/** 拉取 asset index，验证 SHA1，返回对象列表 */
+export async function fetch_asset_index(
+  url: string,
+  sha1: string,
+): Promise<{ objects: Record<string, { hash: string; size: number }> }> {
+  const res = await fetch_file(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch asset index: ${res.status}`);
+  }
+  const body = await res.arrayBuffer();
+  const valid = await verify_sha1(body, sha1);
+  if (!valid) {
+    throw new Error(`SHA1 mismatch for asset index at ${url}`);
+  }
+  return JSON.parse(new TextDecoder().decode(body)) as {
+    objects: Record<string, { hash: string; size: number }>;
+  };
+}

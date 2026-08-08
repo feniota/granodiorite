@@ -1,6 +1,6 @@
 import type { QueuePriority, SyncStatus } from "./types.ts";
 
-/** KV 状态/队列管理 使用 FIFO 数组队列存储待同步的版本 ID，按优先级分三个队列。 */
+/** KV 状态/队列管理 使用 FIFO 数组队列存储待同步的版本 ID，按优先级分三个队列；另有模组加载器产物队列（`sync:queue:modloader`）。 */
 
 // ── 队列操作 ────────────────────────────────────────────
 
@@ -13,28 +13,23 @@ function queue_key(priority: QueuePriority): string {
   return QUEUE_PREFIX + priority;
 }
 
+function modloader_queue_key(): string {
+  return QUEUE_PREFIX + "modloader";
+}
+
 function status_key(version_id: string): string {
   return `sync:status:${version_id}`;
 }
 
-export async function push_to_queue(
-  kv: KVNamespace,
-  priority: QueuePriority,
-  version_id: string,
-): Promise<void> {
-  const key = queue_key(priority);
+async function push_item(kv: KVNamespace, key: string, item: string): Promise<void> {
   const queue: string[] = (await kv.get(key, "json")) ?? [];
-  if (!queue.includes(version_id)) {
-    queue.push(version_id);
+  if (!queue.includes(item)) {
+    queue.push(item);
     await kv.put(key, JSON.stringify(queue));
   }
 }
 
-export async function pop_from_queue(
-  kv: KVNamespace,
-  priority: QueuePriority,
-): Promise<string | null> {
-  const key = queue_key(priority);
+async function pop_item(kv: KVNamespace, key: string): Promise<string | null> {
   const queue: string[] = (await kv.get(key, "json")) ?? [];
   if (queue.length === 0) return null;
   const item = queue.shift()!;
@@ -42,9 +37,61 @@ export async function pop_from_queue(
   return item;
 }
 
-export async function queue_length(kv: KVNamespace, priority: QueuePriority): Promise<number> {
-  const queue: string[] = (await kv.get(queue_key(priority), "json")) ?? [];
+async function count_items(kv: KVNamespace, key: string): Promise<number> {
+  const queue: string[] = (await kv.get(key, "json")) ?? [];
   return queue.length;
+}
+
+export function push_to_queue(
+  kv: KVNamespace,
+  priority: QueuePriority,
+  version_id: string,
+): Promise<void> {
+  return push_item(kv, queue_key(priority), version_id);
+}
+
+export function pop_from_queue(kv: KVNamespace, priority: QueuePriority): Promise<string | null> {
+  return pop_item(kv, queue_key(priority));
+}
+
+export function queue_length(kv: KVNamespace, priority: QueuePriority): Promise<number> {
+  return count_items(kv, queue_key(priority));
+}
+
+/** 从队列中移除匹配某版本 ID 的条目（兼容 JSON 条目与旧版纯 ID 格式） */
+export async function remove_version_from_queue(
+  kv: KVNamespace,
+  priority: QueuePriority,
+  version_id: string,
+): Promise<void> {
+  const key = queue_key(priority);
+  const queue: string[] = (await kv.get(key, "json")) ?? [];
+  const next = queue.filter(entry => {
+    if (entry === version_id) return false;
+    try {
+      const parsed = JSON.parse(entry);
+      return !(typeof parsed === "object" && parsed !== null && parsed.id === version_id);
+    } catch {
+      return true;
+    }
+  });
+  if (next.length !== queue.length) {
+    await kv.put(key, JSON.stringify(next));
+  }
+}
+
+// ── 模组加载器产物队列 ──────────────────────────────────
+
+export function push_modloader_entry(kv: KVNamespace, entry: string): Promise<void> {
+  return push_item(kv, modloader_queue_key(), entry);
+}
+
+export function pop_modloader_entry(kv: KVNamespace): Promise<string | null> {
+  return pop_item(kv, modloader_queue_key());
+}
+
+export function modloader_queue_length(kv: KVNamespace): Promise<number> {
+  return count_items(kv, modloader_queue_key());
 }
 
 // ── 同步状态 ────────────────────────────────────────────

@@ -60,19 +60,24 @@ function match_minecraft_library(pathname: string): Resource | null {
 /** 模组加载器 Maven */
 function match_maven_proxy(pathname: string): Resource | null {
   const patterns = [
-    { prefix: "/maven/fabric/", host: "maven.fabricmc.net" },
-    { prefix: "/maven/neoforge/", host: "maven.neoforged.net" },
-    { prefix: "/maven/forge/", host: "maven.minecraftforge.net" },
-    { prefix: "/maven/forge-legacy/", host: "files.minecraftforge.net/maven" },
-    { prefix: "/fabric-meta/", host: "meta.fabricmc.net" },
+    { prefix: "/maven/fabric/", host: "maven.fabricmc.net", type: "fabric_maven" as const },
+    { prefix: "/maven/neoforge/", host: "maven.neoforged.net", type: "neoforge_maven" as const },
+    // 必须先于 /maven/forge/ 匹配，否则 forge-legacy 路径会被 forge 路由吞掉
+    {
+      prefix: "/maven/forge-legacy/",
+      host: "files.minecraftforge.net/maven",
+      type: "forge_legacy_maven" as const,
+    },
+    { prefix: "/maven/forge/", host: "maven.minecraftforge.net", type: "forge_maven" as const },
+    { prefix: "/fabric-meta/", host: "meta.fabricmc.net", type: "fabric_meta" as const },
   ];
 
-  for (const { prefix, host } of patterns) {
+  for (const { prefix, host, type } of patterns) {
     if (pathname.startsWith(prefix)) {
       const maven_path = pathname.slice(prefix.length);
       return {
-        type: "library" as const,
-        r2_key: `maven${pathname}`,
+        type,
+        r2_key: `minecraft${pathname}`,
         origin_url: `https://${host}/${maven_path}`,
       };
     }

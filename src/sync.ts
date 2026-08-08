@@ -1,9 +1,14 @@
 import * as kv from "./kv.ts";
-import { fetch_version_manifest, fetch_version_json, fetch_file } from "./mojang.ts";
+import {
+  fetch_version_manifest,
+  fetch_version_json,
+  fetch_file,
+  fetch_asset_index,
+} from "./mojang.ts";
 import * as r2 from "./r2.ts";
 
 // ── 重要版本列表 ─────────────────────────────────────────
-const HIGH_PRIORITY_VERSIONS = [
+export const HIGH_PRIORITY_VERSIONS = [
   "1.7.10",
   "1.8.9",
   "1.12.2",
@@ -58,7 +63,8 @@ export async function sync_version_manifest(env: Env): Promise<void> {
 // ── 版本文件同步 (cron: */15 * * * *) ─────────────────────
 
 export async function process_sync_queue(env: Env): Promise<void> {
-  const priorities = ["high", "medium"] as const;
+  // 高优先级每轮 3 个，中/低优先级每轮各 1 个（低优先级由 cron 缓慢消化，逐步实现全量缓存）
+  const priorities = ["high", "medium", "lazy"] as const;
 
   for (const priority of priorities) {
     const length = await kv.queue_length(env.GRANODIORITE_KV, priority);
@@ -129,7 +135,7 @@ function extract_sha1_from_url(url: string): string {
 
 // ── 单版本同步 ───────────────────────────────────────────
 
-async function sync_single_version(
+export async function sync_single_version(
   version_id: string,
   version_url: string,
   env: Env,
@@ -192,25 +198,4 @@ async function proxy_and_cache(env: Env, key: string, url: string): Promise<void
       contentType: res.headers.get("Content-Type") ?? "application/octet-stream",
     },
   });
-}
-
-/** 获取 asset index 并解析 */
-async function fetch_asset_index(
-  url: string,
-  sha1: string,
-): Promise<{ objects: Record<string, { hash: string; size: number }> }> {
-  const res = await fetch_file(url);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch asset index: ${res.status}`);
-  }
-  const body = await res.arrayBuffer();
-  const hex = [...new Uint8Array(await crypto.subtle.digest("SHA-1", body))]
-    .map(b => b.toString(16).padStart(2, "0"))
-    .join("");
-  if (hex !== sha1) {
-    throw new Error(`SHA1 mismatch for asset index: expected ${sha1}, got ${hex}`);
-  }
-  return JSON.parse(new TextDecoder().decode(body)) as {
-    objects: Record<string, { hash: string; size: number }>;
-  };
 }

@@ -1,3 +1,4 @@
+import { sync_modloaders, process_modloader_queue } from "./modloaders.ts";
 import { handle_request } from "./serve.ts";
 import { sync_version_manifest, process_sync_queue } from "./sync.ts";
 
@@ -18,9 +19,11 @@ export default {
     switch (controller.cron) {
       case "*/30 * * * *":
         await sync_version_manifest(env);
+        await sync_modloaders(env);
         break;
       case "*/15 * * * *":
         await process_sync_queue(env);
+        await process_modloader_queue(env);
         break;
       default:
         console.warn({ event: "UNKNOWN_CRON", cron: controller.cron });

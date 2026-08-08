@@ -147,6 +147,11 @@ export type Resource =
   | { type: "server_jar"; version_id: string; r2_key: string; origin_url: string }
   | { type: "asset"; hash: string; r2_key: string; origin_url: string }
   | { type: "library"; r2_key: string; origin_url: string }
+  | { type: "fabric_maven"; r2_key: string; origin_url: string }
+  | { type: "fabric_meta"; r2_key: string; origin_url: string }
+  | { type: "neoforge_maven"; r2_key: string; origin_url: string }
+  | { type: "forge_maven"; r2_key: string; origin_url: string }
+  | { type: "forge_legacy_maven"; r2_key: string; origin_url: string }
   | { type: "asset_index"; id: string; r2_key: string; origin_url: string };
 
 /** 版本同步状态 */
@@ -154,3 +159,9 @@ export type SyncStatus = "not_started" | "in_progress" | "complete" | "partial" 
 
 /** 同步队列优先级 */
 export type QueuePriority = "high" | "medium" | "lazy";
+
+/** 模组加载器产物队列条目：待缓存的 R2 key 与源站 URL */
+export interface ModloaderArtifact {
+  key: string;
+  url: string;
+}
